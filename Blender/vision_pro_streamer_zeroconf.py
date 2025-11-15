@@ -86,7 +86,9 @@ zeroconf_browser = None
 last_model_change_time = 0.0
 last_model_change_time_lock = threading.Lock()
 is_exporting_usdz = False
-export_lock = threading.Lock() 
+export_lock = threading.Lock()
+pending_changes_during_export = False
+pending_changes_lock = threading.Lock() 
 
 def depsgraph_handler_update_time(scene):
     """
@@ -94,11 +96,15 @@ def depsgraph_handler_update_time(scene):
     Updates `last_model_change_time` global if not currently exporting USDZ.
     This helps filter out updates caused by the export process itself from user activity.
     """
-    global last_model_change_time, is_exporting_usdz, last_model_change_time_lock
+    global last_model_change_time, is_exporting_usdz, last_model_change_time_lock, pending_changes_during_export, pending_changes_lock
     if not is_exporting_usdz:
         with last_model_change_time_lock:
             last_model_change_time = time.time()
         # print(f"DEBUG: depsgraph_update_post triggered at {last_model_change_time} (not exporting)")
+    else:
+        # Mark that changes occurred during export
+        with pending_changes_lock:
+            pending_changes_during_export = True
 
 
 # --- ZEROCONF LISTENER CLASS ---
@@ -411,6 +417,7 @@ def stream_scene_data(sock, stop_event):
     Function executed in a separate thread to continuously export and stream Blender scene data.
     Implements activity-based streaming control.
     """
+    global pending_changes_during_export
     print("DEBUG: stream_scene_data thread started.")
     # Schedule initial status update on main thread
     bpy.app.timers.register(lambda: (bpy.context.scene.vision_pro_streamer_props.status_message_realtime_update("Streaming..."), None)[1], first_interval=0.1)
@@ -529,6 +536,13 @@ def stream_scene_data(sock, stop_event):
                     raise
             finally:
                 export_lock.release()
+                
+                # Check if changes occurred during export
+                with pending_changes_lock:
+                    if pending_changes_during_export:
+                        pending_changes_during_export = False
+                        print("DEBUG: Changes detected during export, forcing immediate re-export.")
+                        continue  # Skip sleep, immediately start next iteration
 
     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError) as e:
         print(f"ERROR: Socket disconnected during streaming: {e}")
