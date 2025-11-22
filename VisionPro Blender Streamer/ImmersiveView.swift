@@ -29,10 +29,12 @@ struct ImmersiveView: View {
     var body: some View {
         VStack {
             RealityView { content, attachments in
-                // Set the initial position of the anchor:
-                // 1.0 meter up (positive Y)
-                // -2.0 meters forward (negative Z, since RealityKit's Z-axis is "backwards" relative to user direction)
+                // Set the position for where the dynamic content group should appear in the world
                 dynamicContentAnchor.transform.translation = SIMD3<Float>(x: 0.0, y: 1.0, z: -2.0)
+                
+                // Manually add the interaction components to the anchor
+                dynamicContentAnchor.components.set(InputTargetComponent())
+                dynamicContentAnchor.components.set(generateManipulationCompunent())
                 
                 // Add the main anchor for dynamic content to the RealityView's scene
                 content.add(dynamicContentAnchor)
@@ -46,8 +48,11 @@ struct ImmersiveView: View {
                     // Or keep it separate if it's a fixed UI element.
                     content.add(placeholder)
                 }
+                
+                // IMPORTANT: The communication between the async stream and the RealityView
+                // happens via a task that modifies the anchor's children, not here in the make closure.
+                
             }
-            update : {_,_ in }
             attachments: {
                 Attachment(id: "placeholder") {
                     Text("Awaiting Blender Scene...")
@@ -64,8 +69,15 @@ struct ImmersiveView: View {
                     // When a new entity arrives, replace the content of the dynamic anchor.
                     // This removes the old scene and adds the new one efficiently.
                     dynamicContentAnchor.children.removeAll()
+                    
+                    // Add the new entity received from Blender
                     dynamicContentAnchor.addChild(newEntity)
                     print("RealityView's dynamic content updated via AsyncStream.")
+                    
+                    // Ensure the anchor itself has collision bounds covering its new children
+                    dynamicContentAnchor.updateCollisionShapesFromChildren()
+                    
+                    print("RealityView's dynamic content updated and configured for manipulation.")
                 }
                 print("AsyncStream for entities finished in RealityView.")
             }
@@ -87,6 +99,19 @@ struct ImmersiveView: View {
             receiver.stopListening()
             // The Task in RealityView will also be cancelled automatically on disappear
         }
+    }
+    
+    private func generateManipulationCompunent() -> ManipulationComponent {
+        var manipulationComponent = ManipulationComponent()
+        
+        manipulationComponent.releaseBehavior = .stay
+        manipulationComponent.dynamics.translationBehavior = .unconstrained
+        manipulationComponent.dynamics.primaryRotationBehavior = .unconstrained
+        manipulationComponent.dynamics.secondaryRotationBehavior = .unconstrained
+        manipulationComponent.dynamics.scalingBehavior = .unconstrained
+        manipulationComponent.dynamics.inertia = .zero
+        
+        return manipulationComponent
     }
 }
 
