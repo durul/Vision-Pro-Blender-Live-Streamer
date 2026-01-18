@@ -43,7 +43,6 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-                    .animation(.default, value: appModel.receiver.statusMessage)
             }
             .padding()
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
