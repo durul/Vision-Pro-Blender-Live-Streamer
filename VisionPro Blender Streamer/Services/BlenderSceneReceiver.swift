@@ -29,21 +29,7 @@ class BlenderSceneReceiver {
     // Updates message to SwiftUI view
     var statusMessage: String = "Not listening"
     
-    // Throttle status updates to prevent UI flickering
-    @ObservationIgnored
-    private var lastStatusUpdateTime: Date = .distantPast
-    @ObservationIgnored
-    private let statusUpdateInterval: TimeInterval = 5.0 // Update every 5 seconds
-    
-    // Internal method to update status with throttling
-    private func updateStatus(_ message: String, force: Bool = false) {
-        let now = Date()
-        if force || now.timeIntervalSince(lastStatusUpdateTime) >= statusUpdateInterval {
-            statusMessage = message
-            lastStatusUpdateTime = now
-        }
-    }
-    
+
     init(port: UInt16) {
         self.port = NWEndpoint.Port(rawValue: port)!
         
@@ -67,16 +53,16 @@ class BlenderSceneReceiver {
             listener?.stateUpdateHandler = { state in
                 switch state {
                     case .ready:
-                        self.updateStatus("Listening on port \(self.port)", force: true)
+                        self.statusMessage = "Listening on port \(self.port)"
                         print("Vision Pro listening on port \(self.port)")
                     case .failed(let error):
-                        self.updateStatus("Listener failed: \(error.localizedDescription)", force: true)
+                        self.statusMessage = "Listener failed: \(error.localizedDescription)"
                         print("Listener failed with error: \(error)")
                         
                         // Finish stream on listener failure
                         self.entityUpdateContinuation?.finish()
                     case .cancelled:
-                        self.updateStatus("Listener cancelled", force: true)
+                        self.statusMessage = "Listener cancelled"
                         print("Listener cancelled")
                         
                         // Finish stream on cancellation
@@ -89,7 +75,7 @@ class BlenderSceneReceiver {
             listener?.newConnectionHandler = { [weak self] newConnection in
                 guard let self = self else { return }
                 print("New connection established from Blender!")
-                self.updateStatus("Connected to Blender", force: true)
+                self.statusMessage = "Connected to Blender"
                 self.connection = newConnection
                 self.connection?.start(queue: .main)
                 self.receiveData()
@@ -97,7 +83,7 @@ class BlenderSceneReceiver {
             
             listener?.start(queue: .main)
         } catch {
-            updateStatus("Failed to create listener: \(error.localizedDescription)", force: true)
+            statusMessage = "Failed to create listener: \(error.localizedDescription)"
             print("Failed to create listener: \(error)")
             
             // Finish stream on setup failure
@@ -113,14 +99,14 @@ class BlenderSceneReceiver {
                 let dataLength = content.withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
                 
                 print("Receiving USDZ data of size: \(dataLength) bytes")
-                self.updateStatus("Streaming: \(dataLength / 1024) KB")
+                self.statusMessage = "Streaming: \(dataLength / 1024) KB"
                 
                 self.connection?.receive(minimumIncompleteLength: Int(dataLength), maximumLength: Int(dataLength)) { usdzContent, _, usdzIsComplete, usdzError in
                     if let usdzContent = usdzContent, !usdzContent.isEmpty {
                         print("Received USDZ data. Size: \(usdzContent.count) bytes")
                         self.processData(usdzContent)
                     } else if let usdzError = usdzError {
-                        self.updateStatus("USDZ data receive error: \(usdzError.localizedDescription)", force: true)
+                        self.statusMessage = "USDZ data receive error: \(usdzError.localizedDescription)"
                         print("Receive USDZ data error: \(usdzError)")
                         self.connection?.cancel()
                     } else if usdzIsComplete {
@@ -132,11 +118,11 @@ class BlenderSceneReceiver {
                     self.receiveData()
                 }
             } else if let error = error {
-                self.updateStatus("Connection receive error: \(error.localizedDescription)", force: true)
+                self.statusMessage = "Connection receive error: \(error.localizedDescription)"
                 print("Connection receive error: \(error)")
                 self.connection?.cancel()
             } else if isComplete {
-                self.updateStatus("Connection closed by sender.", force: true)
+                self.statusMessage = "Connection closed by sender."
                 print("Connection closed by sender.")
                 self.connection?.cancel()
             } else {
@@ -163,7 +149,7 @@ class BlenderSceneReceiver {
                 // Switch to the MainActor and Updated status
                 await MainActor.run {
                     print("USDZ loaded successfully into RealityKit!")
-                    self.updateStatus("USDZ Loaded: \(entity.name)")
+                    self.statusMessage = "USDZ Loaded: \(entity.name)"
                 }
                 
                 // Yield the new entity to the AsyncStream
@@ -172,7 +158,7 @@ class BlenderSceneReceiver {
             } catch {
                 // Switch to the MainActor for error status update
                 await MainActor.run {
-                    self.updateStatus("Error loading USDZ: \(error.localizedDescription)", force: true)
+                    self.statusMessage = "Error loading USDZ: \(error.localizedDescription)"
                     print("Error processing USDZ data or loading into RealityKit: \(error)")
                 }
             }
@@ -182,7 +168,7 @@ class BlenderSceneReceiver {
     func stopListening() {
         connection?.cancel()
         listener?.cancel()
-        updateStatus("Stopped listening.", force: true)
+        statusMessage = "Stopped listening."
         print("Stopped listening for Blender connections.")
         
         // Ensure stream is finished when stopping manually
